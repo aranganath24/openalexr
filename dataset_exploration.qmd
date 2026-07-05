@@ -1,0 +1,223 @@
+---
+title: "OpenAlex Audit of CU Boulder Datasets"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(openalexR)
+```
+
+# CU Scholar
+
+We start by extracting CU Scholar datasets in OpenAlex. First, we'll extract the CU Scholar's OpenAlex ids.
+
+```{r}
+# extracts CU Scholar source information
+cu_scholar_source<-oa_fetch(
+  entity = "sources",
+  search = "CU Scholar",
+  verbose = TRUE)
+
+# creates new column with clean IDs
+cu_scholar_source<-cu_scholar_source %>% 
+                      mutate(clean_id=basename(id))
+
+# extracts id column from "cu_scholar_source"
+combined_ids<-cu_scholar_source$clean_id
+
+# collapse ids into "or" string
+combined_ids_string<-paste(combined_ids, collapse="|")
+```
+
+Now, we'll use the ID information to extract CU Scholar datasets:
+
+```{r}
+# extract cu scholar datasets and assign the result to "cu_scholar_datasets_base"
+cu_scholar_datasets_base <- oa_fetch(
+  entity = "works",
+  "locations.source.id" = combined_ids_string,
+  type = "dataset",
+  verbose = TRUE)
+```
+
+We will write this dataset to a file named *cu_scholar_datasets_base.csv*:
+
+```{r}
+# writes "cu_scholar_datasets_base" to disk
+write_csv(cu_scholar_datasets_base, "data-outputs/cu_scholar_datasets_base.csv")
+```
+
+`cu_scholar_datasets_base` contains 181 records/datasets, which is significantly less than the 578 datasets reported in the latest State of Open report. This might be driven by a mismatch between how objects are classified in CU Scholar and how they are classified by Open Alex (i.e. the "dataset" filter might be overly restrictive if OpenAlex interprets some CU Scholar datasets as articles instead). An alternate strategy for pulling CU Scholar datasets from OpenAlex is to extract all of the CU Scholar works indexed by OpenAlex, and then parse the "landing_page_url" field for the word "data":
+
+```{r}
+# extract all cu scholar works
+cu_scholar_works <- oa_fetch(
+  entity = "works",
+  "locations.source.id" = combined_ids_string,
+  verbose = TRUE)
+
+
+# extract cu scholar datasets by searching for "data" within the "landing_page_url" field,
+# i.e. using a url parsing strategy
+cu_scholar_datasets_alternate<-cu_scholar_works %>% 
+                                filter(str_detect(landing_page_url, "data"))
+```
+
+The `cu_scholar_datasets_alternate` data frame contains 317 records, which is substantially more than `cu_scholar_datasets_base`; it looks like many of the "Media and Climate Change" datasets were classified by OpenAlex as "articles" or "other", so they were dropped when using the "dataset" filter but picked up when parsing the landing page urls. However, the number of datasets in `cu_scholar_datasets_alternate` is still well well short of the number of datasets documented in the State of Open report. It could be useful to cross-reference the dataset(s) of CU Scholar datasets from OpenAlex with the dataset used for State of Open to try and identify which datasets are "missing", and why they are not being picked up by OpenAlex.
+
+We'll write out `cu_scholar_datasets_alternate` to disk as "cu_scholar_datasets_alternate.csv":
+
+```{r}
+# writes "cu_scholar_datasets_alternate" to disk
+write_csv(cu_scholar_datasets_alternate, "data-outputs/cu_scholar_datasets_alternate.csv")
+```
+
+# Datasets authored by CU researchers in other venues
+
+To extract datasets published by CU researchers in any location, we'll extract CU Boulder's institutional ID in Open Alex, and then carry out a dataset search within `oa_fetch()` using this ID:
+
+```{r}
+# extracts CU Boulder institutional information and assigns to "cu_boulder_metadata"
+cu_boulder_metadata <- 
+  oa_fetch(
+    entity = "institutions",
+    search = "University of Colorado Boulder")
+
+# extracts CU Boulder openalex institutional ID and assigns it to "cu_inst_id"
+cu_inst_id <-basename(cu_boulder_metadata$id[1])
+
+# extracts cu-authored datasets in any location using "cu_inst_id"
+all_cu_datasets <- oa_fetch(
+  entity = "works",
+  "authorships.institutions.id" = cu_inst_id,
+  type = "dataset",
+  verbose = TRUE)
+```
+
+The resulting dataset, `all_cu_datasets`, contains 2577 datasets from 54 unique repositories. The repositories in the dataset are the following:
+
+```{r}
+# prints unique repos in "all_cu_datasets"
+unique(all_cu_datasets$source_display_name)
+```
+
+This search picks up a relatively small number (13) of CU Scholar datasets; it's not clear why, but OpenAlex may be having issues with reading the institutional ID of the depositor when its entered into DataCite. It may also be driven by the fact that we only started explicitly tagging the institutional affiliation of the depositor in DataCite relatively recently. We can delete the CU Scholar records in `all_cu_datasets` to generate a new dataset of CU-researcher-authored dataset publications in venues outside CU Scholar (`all_cu_datasets_sans_cuscholar`), which we'll write out to disk as "all_cu_datasets_sans_cuscholar.csv"):
+
+```{r}
+# extracts cu-authored datasets in repositories besides cu scholar
+all_cu_datasets_sans_cuscholar<-
+  all_cu_datasets %>% 
+   filter(source_display_name!="CU Scholar (University of Colorado Boulder)")
+
+# writes "all_cu_datasets_sans_cuscholar" to disk
+write_csv(all_cu_datasets_sans_cuscholar, "data-outputs/all_cu_datasets_sans_cuscholar.csv")
+```
+
+We can combine the search results from the CU Scholar repository search (`cu_scholar_datasets_alternate`) with the results from the author search that excludes CU Scholar results (`all_cu_datasets_sans_cuscholar`) to generate a more comprehensive dataset that includes OpenAlex-indexed datasets from CU Scholar and other repositories that were published by CU authors (`cu_datasets_combined`):
+
+```{r}
+# dataset that combines "cu_scholar_datasets_alternate" and "all_cu_datasets_sans_cuscholar"
+cu_datasets_combined<-
+  bind_rows(cu_scholar_datasets_alternate, all_cu_datasets_sans_cuscholar) %>%
+    distinct(id, .keep_all = TRUE)
+```
+
+We'll write this dataset (which has 2577 records) to disk as "cu_datasets_combined.csv":
+
+```{r}
+# writes "cu_datasets_combined" to disk
+write_csv(cu_datasets_combined, "data-outputs/cu_datasets_combined.csv")
+```
+
+It's important to note that this is still likely a significant under-count of the number of datasets associated with CU researchers, since researchers do not always list institutional affiliations in the relevant metadata field when depositing datasets in external repositories (especially if there are many authors, and the CU author is not the depositing or corresponding author). We can try to build a more inclusive search net by extracting a dataset of CU-affiliated researchers (with researcher IDs), and then searching for datasets associated with these individuals. In particular, we'll use the "last_known_institutions.id" attribute to return IDs for authors whose last known publication is associated with CU Boulder:
+
+```{r}
+# fetch author profiles tied to cu boulder
+cu_authors <- oa_fetch(
+  entity = "authors",
+  "last_known_institutions.id" = cu_inst_id,
+  verbose = TRUE)
+```
+
+Now, we'll extract OpenAlex author IDs from `cu_authors` and assign these ids to a vector named `cu_author_ids`:
+
+```{r}
+# Extract authors' unique OpenAlex Author IDs
+cu_author_ids <- basename(cu_authors$id)
+```
+
+Now, we'll write a function, `fetch_dataset_chunk()` to extract datasets associated with the author IDs of researchers of interest.
+
+```{r}
+# write processing function that takes a vector of researcher IDs and returns 
+# datasets associated with those ids
+options(timeout = 600)
+fetch_dataset_chunk <- function(id_vector) {
+  Sys.sleep(1)   # pause before each request
+  combined_author_string <- paste(id_vector, collapse = "|")
+  
+  oa_fetch(
+    entity = "works",
+    "authorships.author.id" = combined_author_string,
+    type = "dataset",
+    verbose = TRUE
+  )
+}
+```
+
+Before applying `fetch_dataset_chunk()` to `cu_author_ids`, we must chunk `cu_author_ids` into groups of 50, since OpenAlex limits batched OR filters. We'll assign the resulting list of chunked IDs (where each list element is a chunk of \~50 ids) to `author_chunks`:
+
+```{r}
+# chunk author ID vector into list with groups/elements of ~50 author ids
+author_chunks <- split(cu_author_ids, ceiling(seq_along(cu_author_ids) / 100))
+```
+
+Finally, we'll iteratively pass the ID chunks in `author_chunks` to the `fetch_dataset_chunk`, and bind the elements of the resulting output list into a dataframe that removes any duplicated datasets:
+
+```{r}
+#| cache: true
+# use purrr to map over the chunks using "fetch_dataset_chunk"
+cu_researcher_datasets_master <- author_chunks %>%
+  map(fetch_dataset_chunk) %>%
+  list_rbind() %>%
+  distinct(id, .keep_all = TRUE)
+```
+
+We will write `cu_researcher_datasets_master` to disk:
+
+```{r}
+write_csv(cu_researcher_datasets_master, "data-outputs/cu_researcher_datasets_master.csv")
+```
+
+To create the most comprehensive dataset of published datasets associated with CU, we'll append the records in `cu_researcher_datasets_master` and those in `cu_datasets_combined`, while removing any duplicated records. We'll assign the resulting dataset to `cu_datasets_comprehensive`.
+
+```{r}
+# creates "cu_datasets_comprehensive" by appending "cu_researcher_datasets_master" and "cu_datasets_combined"
+cu_datasets_comprehensive<-bind_rows(cu_researcher_datasets_master, cu_datasets_combined) %>% 
+  distinct(id, .keep_all = TRUE)
+```
+
+We'll generate a new column, named "authors", that prints all of the authors associated with a dataset, separated by a semicolon (currently, the author metadata is nested within the "authorships" column, and therefore inaccessible when exporting the data from R):
+
+```{r}
+# creates "authors" column from author data in "authorships" column
+cu_datasets_comprehensive<-cu_datasets_comprehensive %>% 
+  mutate(authors=map_chr(authorships, 
+                         ~.x$display_name %>% 
+                           na.omit() %>% 
+                           str_c(collapse="; ")
+  )
+)
+```
+
+most cited CU-Authored datasets
+
+most frequently used repos/destinations
+
+researchers with most cited datasets
+
+researchers with largest quantity of datasets
+
+# Basic Visualizations
