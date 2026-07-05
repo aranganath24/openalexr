@@ -202,14 +202,68 @@ cu_datasets_comprehensive<-bind_rows(cu_researcher_datasets_master, cu_datasets_
 We'll generate a new column, named "authors", that prints all of the authors associated with a dataset, separated by a semicolon (currently, the author metadata is nested within the "authorships" column, and therefore inaccessible when exporting the data from R):
 
 ```{r}
-# creates "authors" column from author data in "authorships" column
+# creates columns for author name, open alex id, and ORCID id from author data in "authorships" column
 cu_datasets_comprehensive<-cu_datasets_comprehensive %>% 
-  mutate(authors=map_chr(authorships, 
-                         ~.x$display_name %>% 
+  mutate(
+    authors_name=map_chr(authorships,
+                         function(x){
+                           x$display_name %>% 
                            na.omit() %>% 
                            str_c(collapse="; ")
-  )
-)
+                         }
+                        ),
+    authors_oa_id=map_chr(authorships,
+                          function(x){
+                           x$id %>% 
+                            na.omit() %>% 
+                            str_c(collapse="; ")
+                          }
+                        ),
+    authors_orcid_id=map_chr(authorships,
+                             function(x){
+                              x$orcid %>% 
+                               na.omit() %>% 
+                               str_c(collapse="; ")
+                             }
+                        )
+    
+                    )   
+```
+
+We'll also generate analogous columns that extract the CU-affiliated authors of the datasets:
+
+```{r}
+cu_datasets_comprehensive<-cu_datasets_comprehensive %>% 
+  mutate(
+    cu_authors_name=map_chr(authorships,
+                         function(x){
+                           x %>% 
+                             filter(basename(id) %in% cu_author_ids) %>% 
+                             pull(display_name) %>% 
+                             na.omit() %>% 
+                            str_c(collapse="; ")
+                         }
+                        ),
+    cu_authors_oa_id=map_chr(authorships,
+                          function(x){
+                            x %>% 
+                              filter(basename(id) %in% cu_author_ids) %>% 
+                              pull(id) %>% 
+                              na.omit() %>% 
+                              str_c(collapse="; ")
+                          }
+                        ),
+    cu_authors_orcid_id=map_chr(authorships,
+                             function(x){
+                             x %>% 
+                              filter(basename(id) %in% cu_author_ids) %>% 
+                                pull(orcid) %>% 
+                                na.omit() %>% 
+                                str_c(collapse="; ")
+                             }
+                        )
+                    )   
+                
 ```
 
 most cited CU-Authored datasets
@@ -219,5 +273,9 @@ most frequently used repos/destinations
 researchers with most cited datasets
 
 researchers with largest quantity of datasets
+
+frequent external collaborators on CU datasets
+
+take keywords and make wordcloud
 
 # Basic Visualizations
