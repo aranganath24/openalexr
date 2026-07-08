@@ -266,6 +266,29 @@ cu_datasets_comprehensive<-cu_datasets_comprehensive %>%
                 
 ```
 
+We'll now write out `cu_datasets_comprehensive` to disk:
+
+```{r}
+# writes "cu_datasets_comprehensive" to disk
+write_csv(cu_datasets_comprehensive, "data-outputs/cu_datasets_comprehensive.csv")
+```
+
+# Exploratory Analysis and Visualization
+
+We'll use `cu_datasets_comprehensive` as the basis for some basic exploratory analysis and visualization, since it's the most comprehensive dataset we've generated.
+
+First, we'll plot the ten most cited datasets with a CU author:
+
+```{r}
+# generates dataset of top ten papers
+top_papers<-cu_datasets_comprehensive %>% 
+              select(title, cited_by_count) %>% 
+              filter(!is.na(title)) %>% 
+              slice_max(cited_by_count, n=10)
+```
+
+<https://publishing.escholarship.umassmed.edu/jeslib/article/id/1170/>
+
 most cited CU-Authored datasets
 
 most frequently used repos/destinations
