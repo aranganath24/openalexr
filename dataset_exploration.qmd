@@ -277,15 +277,96 @@ write_csv(cu_datasets_comprehensive, "data-outputs/cu_datasets_comprehensive.csv
 
 We'll use `cu_datasets_comprehensive` as the basis for some basic exploratory analysis and visualization, since it's the most comprehensive dataset we've generated.
 
-First, we'll plot the ten most cited datasets with a CU author:
+First, we'll plot the titles of the five most cited datasets with a CU author:
 
 ```{r}
-# generates dataset of top ten papers
-top_papers<-cu_datasets_comprehensive %>% 
+# generates dataset of top five papers
+top_papers_dataset<-
+  cu_datasets_comprehensive %>% 
               select(title, cited_by_count) %>% 
               filter(!is.na(title)) %>% 
-              slice_max(cited_by_count, n=10)
+              slice_max(cited_by_count, n=5) %>% 
+              mutate(wrapped_title=str_wrap(title, width=45))
+
+
+# plots top 5 papers
+top_papers_plot<-
+  ggplot(data=top_papers_dataset, aes(x=cited_by_count, y=fct_reorder(wrapped_title, cited_by_count)))+
+  geom_col(fill="#003A70", width=0.6)+
+  geom_text(aes(label=cited_by_count), hjust=-0.2, fontface="bold", size=4)+
+  theme_minimal(base_size=13)+
+  labs(
+    title="Top 5 Most Cited Datasets with CU-affiliated Author",
+    subtitle="Ranked by total direct citations tracked in OpenAlex",
+    x="Total Citation Count",
+    y=""
+  )+
+  theme(panel.grid.major.y=element_blank(),
+        plot.title=element_text(face="bold", size=16),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(lineheight=0.9, color="black")
+  )
+
+
+# prints "top_papers_plot"
+top_papers_plot
+
 ```
+
+Now, we'll examine the number of CU-authored datasets by repository/publication venue:
+
+```{r}
+# generates dataset that indicates number of datasets published in each repo/venue
+dataset_count_by_repo<-
+  cu_datasets_comprehensive %>% 
+  group_by(source_display_name) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  rename(repo=source_display_name) %>% 
+  ungroup()
+
+# prints "dataset_count_by_repo"
+dataset_count_by_repo
+```
+
+We'll write out the dataset to disk as "dataset_count_by_repo.csv":
+
+```{r}
+write_csv(dataset_count_by_repo, "data-outputs/dataset_count_by_repo.csv")
+```
+
+We'll also create a chart that displays the 20 most commonly used repositories:
+
+```{r}
+# generates dataset of top ten repos
+top_repos_dataset<-
+  dataset_count_by_repo %>% 
+              filter(!is.na(repo)) %>% 
+              slice_max(n, n=20) %>% 
+              mutate(wrapped_title=str_wrap(repo, width=45))
+
+# generates plot based on "top_repos_dataset"
+top_repos_plot<-
+  ggplot(data=top_repos_dataset, aes(x=n, y=fct_reorder(wrapped_title, n)))+
+  geom_col(fill="#003A70", width=0.6)+
+  geom_text(aes(label=n), hjust=-0.2, fontface="bold", size=4)+
+  theme_minimal(base_size=13)+
+  labs(
+    title="Data repositories with most deposits from CU-affiliated authors",
+    x="Total Number of Deposits",
+    y=""
+  )+
+  theme(panel.grid.major.y=element_blank(),
+        plot.title=element_text(face="bold", size=16),
+        axis.text.x = element_blank(),
+        axis.text.y=element_text(lineheight=0.9, color="black")
+  )
+
+# prints "top_repos_plot"
+top_repos_plot
+```
+
+**researchers with most cited datasets**
 
 <https://publishing.escholarship.umassmed.edu/jeslib/article/id/1170/>
 
